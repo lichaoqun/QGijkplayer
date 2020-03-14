@@ -3090,14 +3090,19 @@ static int read_thread(void *arg)
     is->last_subtitle_stream = is->subtitle_stream = -1;
     is->eof = 0;
 
+    // - 初始化一个AVFormatContext上下文
     ic = avformat_alloc_context();
     if (!ic) {
         av_log(NULL, AV_LOG_FATAL, "Could not allocate context.\n");
         ret = AVERROR(ENOMEM);
         goto fail;
     }
+    
+    // - 设置中断函数
     ic->interrupt_callback.callback = decode_interrupt_cb;
     ic->interrupt_callback.opaque = is;
+    
+    // - 设置一些参数
     if (!av_dict_get(ffp->format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE)) {
         av_dict_set(&ffp->format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
         scan_all_pmts_set = 1;
@@ -3114,14 +3119,20 @@ static int read_thread(void *arg)
         av_dict_set_int(&ffp->format_opts, "skip-calc-frame-rate", ffp->skip_calc_frame_rate, 0);
     }
 
+    
+    // - 根据文件名获取文件信息
     if (ffp->iformat_name)
         is->iformat = av_find_input_format(ffp->iformat_name);
+    
+    // - 打开文件
     err = avformat_open_input(&ic, is->filename, is->iformat, &ffp->format_opts);
     if (err < 0) {
         print_error(is->filename, err);
         ret = -1;
         goto fail;
     }
+    
+    // - 发送 打开输入文件的 通知
     ffp_notify_msg1(ffp, FFP_MSG_OPEN_INPUT);
 
     if (scan_all_pmts_set)
@@ -3139,6 +3150,7 @@ static int read_thread(void *arg)
     if (ffp->genpts)
         ic->flags |= AVFMT_FLAG_GENPTS;
 
+    // - 设置 inject_global_side_data 参数
     av_format_inject_global_side_data(ic);
     //
     //AVDictionary **opts;
@@ -3163,8 +3175,12 @@ static int read_thread(void *arg)
                     break;
                 }
             }
+            
+            // - 从文件中提取流信息.
             err = avformat_find_stream_info(ic, opts);
         } while(0);
+        
+        // - 发送 拿到流的详细信息的 通知
         ffp_notify_msg1(ffp, FFP_MSG_FIND_STREAM_INFO);
 
         for (i = 0; i < orig_nb_streams; i++)
@@ -3210,11 +3226,14 @@ static int read_thread(void *arg)
 
     is->realtime = is_realtime(ic);
 
+    // - 调试函数 打印流信息
     av_dump_format(ic, 0, is->filename, 0);
 
     int video_stream_count = 0;
     int h264_stream_count = 0;
     int first_h264_stream = -1;
+    
+    // - 循环遍历所有的流
     for (i = 0; i < ic->nb_streams; i++) {
         AVStream *st = ic->streams[i];
         enum AVMediaType type = st->codecpar->codec_type;
@@ -3240,9 +3259,11 @@ static int read_thread(void *arg)
         av_log(NULL, AV_LOG_WARNING, "multiple video stream found, prefer first h264 stream: %d\n", first_h264_stream);
     }
     if (!ffp->video_disable)
+        // - 获取音视频对应的stream_index
         st_index[AVMEDIA_TYPE_VIDEO] =
             av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO,
                                 st_index[AVMEDIA_TYPE_VIDEO], -1, NULL, 0);
+        // - 获取音视频对应的stream_index
     if (!ffp->audio_disable)
         st_index[AVMEDIA_TYPE_AUDIO] =
             av_find_best_stream(ic, AVMEDIA_TYPE_AUDIO,
@@ -3271,6 +3292,7 @@ static int read_thread(void *arg)
 
     /* open the streams */
     if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
+        // - 打开视频音频解码器
         stream_component_open(ffp, st_index[AVMEDIA_TYPE_AUDIO]);
     } else {
         ffp->av_sync_type = AV_SYNC_VIDEO_MASTER;
@@ -3279,6 +3301,8 @@ static int read_thread(void *arg)
 
     ret = -1;
     if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
+        
+        // - 打开视频音频解码器
         ret = stream_component_open(ffp, st_index[AVMEDIA_TYPE_VIDEO]);
     }
     if (is->show_mode == SHOW_MODE_NONE)
@@ -3287,6 +3311,8 @@ static int read_thread(void *arg)
     if (st_index[AVMEDIA_TYPE_SUBTITLE] >= 0) {
         stream_component_open(ffp, st_index[AVMEDIA_TYPE_SUBTITLE]);
     }
+    
+    // - 发送 打开解码器的 通知
     ffp_notify_msg1(ffp, FFP_MSG_COMPONENT_OPEN);
 
     if (!ffp->ijkmeta_delay_init) {
@@ -3512,6 +3538,8 @@ static int read_thread(void *arg)
             }
         }
         pkt->flags = 0;
+            
+        // - 读取媒体数据，得到的是音视频分离的解码前数据
         ret = av_read_frame(ic, pkt);
         if (ret < 0) {
             int pb_eof = 0;
@@ -3587,12 +3615,14 @@ static int read_thread(void *arg)
                 (double)(ffp->start_time != AV_NOPTS_VALUE ? ffp->start_time : 0) / 1000000
                 <= ((double)ffp->duration / 1000000);
         if (pkt->stream_index == is->audio_stream && pkt_in_play_range) {
+            // - audio 放入 audioQueue 中
             packet_queue_put(&is->audioq, pkt);
         } else if (pkt->stream_index == is->video_stream && pkt_in_play_range
                    && !(is->video_st && (is->video_st->disposition & AV_DISPOSITION_ATTACHED_PIC))) {
+            // - video 放入 videoQueue 中
             packet_queue_put(&is->videoq, pkt);
         } else if (pkt->stream_index == is->subtitle_stream && pkt_in_play_range) {
-            packet_queue_put(&is->subtitleq, pkt);
+                        packet_queue_put(&is->subtitleq, pkt);
         } else {
             av_packet_unref(pkt);
         }
