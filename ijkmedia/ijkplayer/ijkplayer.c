@@ -39,6 +39,7 @@
 #define MPST_RET_IF_EQ(real, expected) \
     MPST_RET_IF_EQ_INT(real, expected, EIJK_INVALID_STATE)
 
+/** 释放播放器 */
 inline static void ijkmp_destroy(IjkMediaPlayer *mp)
 {
     if (!mp)

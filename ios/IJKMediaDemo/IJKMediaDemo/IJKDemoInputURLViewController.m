@@ -40,7 +40,7 @@
 }
 
 - (void)onClickPlayButton {
-    NSURL *url = [NSURL URLWithString:self.textView.text];
+    NSURL *url = [NSURL URLWithString:@"http://devimages.apple.com.edgekey.net/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8"];
     NSString *scheme = [[url scheme] lowercaseString];
     
     if ([scheme isEqualToString:@"http"]
